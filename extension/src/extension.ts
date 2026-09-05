@@ -1,26 +1,99 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+import { SessionManager } from "./sessionManager";
+import { DiagnosticTracker } from "./diagnosticTracker";
+import { FileTracker } from "./fileTracker";
+
 export function activate(context: vscode.ExtensionContext) {
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "gritgraph" is now active!');
+    console.log("GritGraph extension activated!");
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('gritgraph.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from GritGraph!');
-	});
+    // Create the main session manager
+    const sessionManager = new SessionManager();
 
-	context.subscriptions.push(disposable);
+    // Create trackers
+    const diagnosticTracker =
+        new DiagnosticTracker(sessionManager);
+
+    const fileTracker =
+        new FileTracker(sessionManager);
+
+    // Start trackers
+    diagnosticTracker.start(context);
+    fileTracker.start(context);
+
+    // ------------------------------------
+    // START SESSION
+    // ------------------------------------
+
+    const startCommand = vscode.commands.registerCommand(
+        "gritgraph.startSession",
+        () => {
+
+            diagnosticTracker.clearPreviousErrors();
+
+            sessionManager.start();
+        }
+    );
+
+    // ------------------------------------
+    // END SESSION
+    // ------------------------------------
+
+    const endCommand = vscode.commands.registerCommand(
+        "gritgraph.endSession",
+        () => {
+
+            const session = sessionManager.end();
+
+            if (!session) {
+                return;
+            }
+
+            const duration =
+                session.endedAt
+                    ? Math.round(
+                        (session.endedAt - session.startedAt)
+                        / 60000
+                    )
+                    : 0;
+
+            const errors =
+                session.events.filter(
+                    event => event.type === "error"
+                ).length;
+
+            const fileChanges =
+                session.events.filter(
+                    event => event.type === "file_change"
+                ).length;
+
+            console.log(
+                "========== GRITGRAPH SESSION =========="
+            );
+
+            console.log(
+                JSON.stringify(session, null, 2)
+            );
+
+            console.log(
+                "========================================"
+            );
+
+            vscode.window.showInformationMessage(
+                `🎯 Session Complete | ` +
+                `Attempts: ${session.attempts} | ` +
+                `Errors: ${errors} | ` +
+                `Changes: ${fileChanges} | ` +
+                `Duration: ${duration} min`
+            );
+        }
+    );
+
+    context.subscriptions.push(
+        startCommand,
+        endCommand
+    );
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}
