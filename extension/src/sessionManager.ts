@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
-import { DebugEvent, DebugSession } from "./types";
+import {
+    DebugEvent,
+    DebugSession
+} from "./types";
 
 export class SessionManager {
 
@@ -18,7 +21,9 @@ export class SessionManager {
             id: `session-${Date.now()}`,
             startedAt: Date.now(),
             events: [],
-            attempts: 0
+            attempts: 0,
+            problems: 0,
+            resolved: false
         };
 
         vscode.window.showInformationMessage(
@@ -34,9 +39,66 @@ export class SessionManager {
 
         this.session.events.push(event);
 
-        if (event.type === "error") {
-            this.session.attempts++;
+        // A new failure represents a newly observed problem.
+        if (
+            event.type === "diagnostic_error" ||
+            event.type === "terminal_error" ||
+            event.type === "build_failure" ||
+            event.type === "test_failure"
+        ) {
+            this.session.problems++;
         }
+    }
+
+    recordAttempt(): void {
+
+        if (!this.session) {
+            return;
+        }
+
+        this.session.attempts++;
+
+        this.session.events.push({
+            timestamp: Date.now(),
+            type: "attempt",
+            message: `Debugging attempt #${this.session.attempts}`
+        });
+
+        console.log(
+            `[GritGraph] Debugging attempt #${this.session.attempts}`
+        );
+    }
+
+    recordSuccess(): void {
+
+        if (!this.session) {
+            return;
+        }
+
+        if (this.session.resolved) {
+            return;
+        }
+
+        this.session.resolved = true;
+
+        this.session.events.push({
+            timestamp: Date.now(),
+            type: "success",
+            message: "Problem resolved"
+        });
+
+        console.log(
+            "[GritGraph] Problem resolved successfully!"
+        );
+
+        vscode.window.showInformationMessage(
+            "✅ GritGraph: Problem resolved successfully!"
+        );
+    }
+
+    isResolved(): boolean {
+
+        return this.session?.resolved ?? false;
     }
 
     end(): DebugSession | null {

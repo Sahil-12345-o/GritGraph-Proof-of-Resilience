@@ -8,17 +8,23 @@ export function activate(context: vscode.ExtensionContext) {
 
     console.log("GritGraph extension activated!");
 
-    // Create the main session manager
-    const sessionManager = new SessionManager();
+    // ------------------------------------
+    // CORE SESSION MANAGER
+    // ------------------------------------
 
-    // Create trackers
+    const sessionManager =
+        new SessionManager();
+
+    // ------------------------------------
+    // TRACKERS
+    // ------------------------------------
+
     const diagnosticTracker =
         new DiagnosticTracker(sessionManager);
 
     const fileTracker =
         new FileTracker(sessionManager);
 
-    // Start trackers
     diagnosticTracker.start(context);
     fileTracker.start(context);
 
@@ -26,69 +32,119 @@ export function activate(context: vscode.ExtensionContext) {
     // START SESSION
     // ------------------------------------
 
-    const startCommand = vscode.commands.registerCommand(
-        "gritgraph.startSession",
-        () => {
+    const startCommand =
+        vscode.commands.registerCommand(
+            "gritgraph.startSession",
+            () => {
 
-            diagnosticTracker.clearPreviousErrors();
+                diagnosticTracker.clearPreviousErrors();
 
-            sessionManager.start();
-        }
-    );
+                sessionManager.start();
+            }
+        );
 
     // ------------------------------------
     // END SESSION
     // ------------------------------------
 
-    const endCommand = vscode.commands.registerCommand(
-        "gritgraph.endSession",
-        () => {
+    const endCommand =
+        vscode.commands.registerCommand(
+            "gritgraph.endSession",
+            () => {
 
-            const session = sessionManager.end();
+                /*
+                 * Calculate the important information
+                 * BEFORE ending the session.
+                 */
+                const activeSession =
+                    sessionManager.getCurrentSession();
 
-            if (!session) {
-                return;
-            }
+                if (!activeSession) {
+                    vscode.window.showWarningMessage(
+                        "No active GritGraph session."
+                    );
+                    return;
+                }
 
-            const duration =
-                session.endedAt
-                    ? Math.round(
-                        (session.endedAt - session.startedAt)
+                const duration =
+                    Math.round(
+                        (Date.now() - activeSession.startedAt)
                         / 60000
+                    );
+
+                const errors =
+                    activeSession.events.filter(
+                        event =>
+                            event.type === "diagnostic_error" ||
+                            event.type === "terminal_error" ||
+                            event.type === "build_failure" ||
+                            event.type === "test_failure"
+                    ).length;
+
+                const codeChanges =
+                    activeSession.events.filter(
+                        event =>
+                            event.type === "code_change"
+                    ).length;
+
+                const terminalCommands =
+                    activeSession.events.filter(
+                        event =>
+                            event.type === "terminal_command"
+                    ).length;
+
+                const strategyChanges =
+                    activeSession.events.filter(
+                        event =>
+                            event.type === "strategy_change"
+                    ).length;
+
+                const resolved =
+                    activeSession.resolved;
+
+                console.log(
+                    "========== GRITGRAPH SESSION =========="
+                );
+
+                console.log(
+                    JSON.stringify(
+                        activeSession,
+                        null,
+                        2
                     )
-                    : 0;
+                );
 
-            const errors =
-                session.events.filter(
-                    event => event.type === "error"
-                ).length;
+                console.log(
+                    "========================================"
+                );
 
-            const fileChanges =
-                session.events.filter(
-                    event => event.type === "file_change"
-                ).length;
+                /*
+                 * End the session only after collecting
+                 * all required information.
+                 */
+                const session =
+                    sessionManager.end();
 
-            console.log(
-                "========== GRITGRAPH SESSION =========="
-            );
+                if (!session) {
+                    return;
+                }
 
-            console.log(
-                JSON.stringify(session, null, 2)
-            );
+                vscode.window.showInformationMessage(
+                    `🎯 GritGraph Session Complete | ` +
+                    `Attempts: ${session.attempts} | ` +
+                    `Problems: ${session.problems} | ` +
+                    `Code Changes: ${codeChanges} | ` +
+                    `Terminal Commands: ${terminalCommands} | ` +
+                    `Strategy Changes: ${strategyChanges} | ` +
+                    `Resolved: ${resolved ? "YES ✅" : "NO ❌"} | ` +
+                    `Duration: ${duration} min`
+                );
+            }
+        );
 
-            console.log(
-                "========================================"
-            );
-
-            vscode.window.showInformationMessage(
-                `🎯 Session Complete | ` +
-                `Attempts: ${session.attempts} | ` +
-                `Errors: ${errors} | ` +
-                `Changes: ${fileChanges} | ` +
-                `Duration: ${duration} min`
-            );
-        }
-    );
+    // ------------------------------------
+    // REGISTER COMMANDS
+    // ------------------------------------
 
     context.subscriptions.push(
         startCommand,
