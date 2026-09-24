@@ -3,6 +3,8 @@ import * as vscode from "vscode";
 import { SessionManager } from "./sessionManager";
 import { DiagnosticTracker } from "./diagnosticTracker";
 import { FileTracker } from "./fileTracker";
+import { TerminalTracker } from "./terminalTracker";
+import { GritScoreEngine } from "./gritScoreEngine";
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -17,6 +19,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // ------------------------------------
     // TRACKERS
+    //
+    // Trackers only record raw evidence.
+    // They never decide what counts as an attempt.
     // ------------------------------------
 
     const diagnosticTracker =
@@ -25,8 +30,15 @@ export function activate(context: vscode.ExtensionContext) {
     const fileTracker =
         new FileTracker(sessionManager);
 
+    const terminalTracker =
+        new TerminalTracker(sessionManager);
+
+    // GritScoreEngine is stateless — one instance per activation.
+    const gritScoreEngine = new GritScoreEngine();
+
     diagnosticTracker.start(context);
     fileTracker.start(context);
+    terminalTracker.start(context);
 
     // ------------------------------------
     // START SESSION
@@ -52,10 +64,6 @@ export function activate(context: vscode.ExtensionContext) {
             "gritgraph.endSession",
             () => {
 
-                /*
-                 * Calculate the important information
-                 * BEFORE ending the session.
-                 */
                 const activeSession =
                     sessionManager.getCurrentSession();
 
@@ -72,55 +80,98 @@ export function activate(context: vscode.ExtensionContext) {
                         / 60000
                     );
 
-                const errors =
-                    activeSession.events.filter(
-                        event =>
-                            event.type === "diagnostic_error" ||
-                            event.type === "terminal_error" ||
-                            event.type === "build_failure" ||
-                            event.type === "test_failure"
-                    ).length;
+                /*
+                 * JourneyAnalyzer is the authoritative source for the
+                 * reconstructed journey. We analyse BEFORE ending the
+                 * session so the problems and events are still intact.
+                 */
+                const analysis =
+                    sessionManager.analyzeJourney();
 
-                const codeChanges =
-                    activeSession.events.filter(
-                        event =>
-                            event.type === "code_change"
-                    ).length;
+                if (analysis) {
 
-                const terminalCommands =
-                    activeSession.events.filter(
-                        event =>
-                            event.type === "terminal_command"
-                    ).length;
+                    console.log(
+                        "========== GRITGRAPH JOURNEY =========="
+                    );
 
-                const strategyChanges =
-                    activeSession.events.filter(
-                        event =>
-                            event.type === "strategy_change"
-                    ).length;
+                    console.log(
+                        `Problems: ${analysis.problems.length} ` +
+                        `(open: ${analysis.unresolvedProblems.length})`
+                    );
 
-                const resolved =
-                    activeSession.resolved;
+                    console.log(
+                        `Attempts: ${analysis.totalAttempts} ` +
+                        `(successful: ${analysis.successfulAttempts}, ` +
+                        `failed: ${analysis.failedAttempts}, ` +
+                        `inconclusive: ${analysis.inconclusiveAttempts})`
+                    );
 
-                console.log(
-                    "========== GRITGRAPH SESSION =========="
-                );
+                    console.log(
+                        `Strategy change signals: ` +
+                        `${analysis.strategyChanges.length}`
+                    );
 
-                console.log(
-                    JSON.stringify(
-                        activeSession,
-                        null,
-                        2
-                    )
-                );
+                    console.log(
+                        JSON.stringify(analysis, null, 2)
+                    );
 
-                console.log(
-                    "========================================"
-                );
+                    console.log(
+                        "========================================"
+                    );
+                }
 
                 /*
-                 * End the session only after collecting
-                 * all required information.
+                 * Compute the Grit Score from the reconstructed journey.
+                 * This is done before ending the session so the analysis
+                 * data is still available.
+                 */
+                const gritScore =
+                    analysis
+                        ? gritScoreEngine.compute(analysis)
+                        : null;
+
+                if (gritScore) {
+
+                    console.log(
+                        "========== GRIT SCORE =========="
+                    );
+
+                    console.log(
+                        `Overall: ${gritScore.overall}/100`
+                    );
+
+                    console.log(
+                        `  Persistence: ${gritScore.dimensions.persistence.score} — ` +
+                        gritScore.dimensions.persistence.evidence
+                    );
+
+                    console.log(
+                        `  Adaptation:  ${gritScore.dimensions.adaptation.score} — ` +
+                        gritScore.dimensions.adaptation.evidence
+                    );
+
+                    console.log(
+                        `  Recovery:    ${gritScore.dimensions.recovery.score} — ` +
+                        gritScore.dimensions.recovery.evidence
+                    );
+
+                    console.log(
+                        `  Efficiency:  ${gritScore.dimensions.efficiency.score} — ` +
+                        gritScore.dimensions.efficiency.evidence
+                    );
+
+                    console.log(
+                        `Explanation: ${gritScore.explanation}`
+                    );
+
+                    console.log(
+                        "================================"
+                    );
+                }
+
+                /*
+                 * End the session only after collecting all required
+                 * information.
                  */
                 const session =
                     sessionManager.end();
@@ -129,13 +180,37 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
+                const totalAttempts =
+                    analysis?.totalAttempts ?? session.attempts;
+
+                const successfulAttempts =
+                    analysis?.successfulAttempts ?? 0;
+
+                const failedAttempts =
+                    analysis?.failedAttempts ?? 0;
+
+                const inconclusiveAttempts =
+                    analysis?.inconclusiveAttempts ?? 0;
+
+                const strategyChangeSignals =
+                    analysis?.strategyChanges.length ?? 0;
+
+                const resolved =
+                    session.resolved ||
+                    (
+                        (analysis?.problems.length ?? 0) > 0 &&
+                        (analysis?.unresolvedProblems.length ?? 1) === 0
+                    );
+
                 vscode.window.showInformationMessage(
                     `🎯 GritGraph Session Complete | ` +
-                    `Attempts: ${session.attempts} | ` +
+                    `Score: ${gritScore?.overall ?? 0}/100 | ` +
                     `Problems: ${session.problems} | ` +
-                    `Code Changes: ${codeChanges} | ` +
-                    `Terminal Commands: ${terminalCommands} | ` +
-                    `Strategy Changes: ${strategyChanges} | ` +
+                    `Attempts: ${totalAttempts} ` +
+                    `(✅ ${successfulAttempts} / ` +
+                    ` ${failedAttempts} / ` +
+                    ` ${inconclusiveAttempts}) | ` +
+                    `Strategy Changes: ${strategyChangeSignals} | ` +
                     `Resolved: ${resolved ? "YES ✅" : "NO ❌"} | ` +
                     `Duration: ${duration} min`
                 );

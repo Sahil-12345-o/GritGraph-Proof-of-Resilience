@@ -46,6 +46,15 @@ export class FileTracker {
 
             /*
              * Record one meaningful code-change event.
+             *
+             * Edits are debounced/batched above, so typing many
+             * keystrokes still produces a single code_change event.
+             *
+             * NOTE:
+             * This tracker only records *evidence* of developer
+             * activity. It intentionally does NOT count attempts.
+             * Attempts are reconstructed by JourneyAnalyzer from the
+             * logical problems and the recorded events.
              */
             this.sessionManager.addEvent({
                 timestamp: Date.now(),
@@ -63,28 +72,6 @@ export class FileTracker {
                 `[GritGraph] Meaningful code change: ` +
                 `${files.length} file(s)`
             );
-
-            /*
-             * A code change after a problem exists
-             * represents an attempt to solve that problem.
-             *
-             * SessionManager will decide whether this
-             * should actually count as an attempt.
-             */
-            const session =
-                this.sessionManager.getCurrentSession();
-
-            const hasProblem =
-                session?.events.some(event =>
-                    event.type === "diagnostic_error" ||
-                    event.type === "terminal_error" ||
-                    event.type === "build_failure" ||
-                    event.type === "test_failure"
-                ) ?? false;
-
-            if (hasProblem) {
-                this.sessionManager.recordAttempt();
-            }
 
             this.changedFiles.clear();
 

@@ -1,0 +1,14 @@
+# Build outputs
+**/node_modules/
+**/out/
+**/dist/
+*.vsix
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS artefacts
+.DS_Store
+Thumbs.db

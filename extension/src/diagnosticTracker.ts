@@ -78,7 +78,8 @@ export class DiagnosticTracker {
         /*
          * Record newly observed code problems.
          *
-         * This is a PROBLEM event, not an attempt.
+         * This is a PROBLEM event, not an attempt. Attempt counting is
+         * handled separately by JourneyAnalyzer.
          */
         for (const [key, error] of currentErrors) {
 
@@ -100,18 +101,16 @@ export class DiagnosticTracker {
         }
 
         /*
-         * If the previous error state disappears completely,
-         * the current problem has been resolved.
-         */
-        if (
-            this.previousErrors.size > 0 &&
-            currentErrors.size === 0
-        ) {
-            this.sessionManager.recordSuccess();
-        }
-
-        /*
-         * Store the current state for the next comparison.
+         * IMPORTANT:
+         *
+         * A clean diagnostic state is NOT treated as proof that the
+         * whole session has been resolved. Diagnostics can disappear
+         * for many reasons (deleted code, unrelated changes, stale
+         * language servers, etc.), so this is weak evidence.
+         *
+         * Resolution is therefore recorded elsewhere, from strong
+         * evidence (build/test/command success or explicit problem
+         * resolution), and inferred conservatively.
          */
         this.previousErrors = currentErrors;
     }

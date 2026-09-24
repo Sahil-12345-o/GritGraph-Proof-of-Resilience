@@ -51,6 +51,9 @@ export interface DebugEvent {
     // Terminal command, if applicable
     command?: string;
 
+    // Exit code of an executed command, when reliably available
+    exitCode?: number;
+
     // What kind of problem caused the event
     source?: FailureSource;
 
